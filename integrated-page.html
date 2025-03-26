@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integrated Visualizer</title>
+    <link rel="stylesheet" href="styles/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            margin: 0;
+            overflow: hidden;
+        }
+        
+        canvas { 
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        
+        .right {
+            position: relative;
+            z-index: 10;
+            /* Add any additional styling needed for proper positioning */
+            pointer-events: auto;
+        }
+        
+        /* Make sure content is visible over the canvas */
+        .title, p, button {
+            position: relative;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <!-- Main site content -->
+    <div class="right">
+        <div class="title">
+            <h1 class="mainH">Placeholder</h1>
+            <h2 class="behindH">Placeholder</h2>  
+        </div>
+        <p>
+            Take a dig deep into your music journey and most importantly, yourself
+        </p>
+        <button>Log in.</button>
+    </div>
+
+    <!-- Three.js script - Directly included from novy.html -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x000000); // Black background
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        
+        // Apply a z-index to the renderer's canvas to place it behind the content
+        renderer.domElement.style.zIndex = '1';
+        
+        camera.position.z = 20; // Closer view
+        
+        // Get viewport dimensions in Three.js units
+        const vFOV = camera.fov * Math.PI / 180;
+        const height = 2 * Math.tan(vFOV / 2) * camera.position.z;
+        const width = height * camera.aspect;
+        
+        // Line creation
+        const seaweedLines = [];
+        const numLines = 100; // Fewer lines to prevent overcrowding
+        const screenWidth = width;
+        const lineSpacing = screenWidth / (numLines * 0.7); // Adjusted spacing for seamless transition
+        
+        // Constants for horizontal movement
+        const moveSpeed = 2; // Faster movement
+        const leftBoundary = -screenWidth/2 - lineSpacing; // Reduced extra space
+        const rightBoundary = screenWidth/2 + lineSpacing; // Reduced extra space
+        const startX = leftBoundary; // Start from left edge of screen
+        
+        // Distribute lines evenly across the width plus boundaries
+        const totalWidth = rightBoundary - leftBoundary;
+        const actualSpacing = totalWidth / numLines;
+        
+        // Calculate bottom position
+        const bottomY = -height/2 - 0.5; // Offset slightly from bottom edge
+        
+        // Create simplex noise-like function
+        function createNoiseGenerator() {
+            const permutation = [];
+            for (let i = 0; i < 256; i++) {
+                permutation[i] = Math.floor(Math.random() * 256);
+            }
+            
+            return function(x, y, z) {
+                const X = Math.floor(x) & 255;
+                const Y = Math.floor(y) & 255;
+                const Z = Math.floor(z) & 255;
+                
+                x -= Math.floor(x);
+                y -= Math.floor(y);
+                z -= Math.floor(z);
+                
+                const u = x * x * (3 - 2 * x);
+                const v = y * y * (3 - 2 * y);
+                const w = z * z * (3 - 2 * z);
+                
+                const A = permutation[X] + Y;
+                const AA = permutation[A] + Z;
+                const AB = permutation[A + 1] + Z;
+                const B = permutation[X + 1] + Y;
+                const BA = permutation[B] + Z;
+                const BB = permutation[B + 1] + Z;
+                
+                return lerp(w, lerp(v, lerp(u, grad(permutation[AA], x, y, z), 
+                                        grad(permutation[BA], x-1, y, z)),
+                                lerp(u, grad(permutation[AB], x, y-1, z),
+                                        grad(permutation[BB], x-1, y-1, z))),
+                        lerp(v, lerp(u, grad(permutation[AA+1], x, y, z-1),
+                                        grad(permutation[BA+1], x-1, y, z-1)),
+                                lerp(u, grad(permutation[AB+1], x, y-1, z-1),
+                                        grad(permutation[BB+1], x-1, y-1, z-1))));
+            };
+        }
+        
+        function lerp(t, a, b) {
+            return a + t * (b - a);
+        }
+        
+        function grad(hash, x, y, z) {
+            const h = hash & 15;
+            const u = h < 8 ? x : y;
+            const v = h < 4 ? y : h === 12 || h === 14 ? x : z;
+            return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+        }
+        
+        const noise = createNoiseGenerator();
+        
+        // Function to convert HSL to RGB
+        function hslToRgb(h, s, l) {
+            let r, g, b;
+            if (s === 0) {
+                r = g = b = l;
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            return [r, g, b];
+        }
+        
+        for (let i = 0; i < numLines; i++) {
+            // Random height for each line - reduced to 1/3 of original and made smaller
+            const lineHeight = height * (0.15 + Math.random() * 0.2) / 3; // Now 5-11% of screen height (was 10-23%)
+            const numPoints = 25; // Keep same number of points for smooth curves
+            const points = [];
+            const colors = [];
+            
+            // Each line has a base position - distribute evenly horizontally
+            const baseX = leftBoundary + (i * actualSpacing);
+            
+            for (let j = 0; j < numPoints; j++) {
+                const x = baseX;
+                const y = bottomY + (j * lineHeight / (numPoints - 1));
+                const z = 0;
+                points.push(new THREE.Vector3(x, y, z));
+                
+                // Initialize colors (will be animated)
+                colors.push(0, 1, 0); // Green color
+            }
+            
+            // Create line
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const colorAttribute = new THREE.Float32BufferAttribute(colors, 3);
+            geometry.setAttribute('color', colorAttribute);
+            
+            const material = new THREE.LineBasicMaterial({ 
+                vertexColors: true,
+                linewidth: 2,
+                opacity: 0.9,
+                transparent: true
+            });
+            
+            const line = new THREE.Line(geometry, material);
+            scene.add(line);
+            
+            // Store data for animation
+            line.userData = {
+                baseX: baseX,
+                baseY: bottomY,
+                lineHeight: lineHeight,
+                segmentLength: lineHeight / (numPoints - 1),
+                numPoints: numPoints,
+                phases: [
+                    Math.random() * Math.PI * 2,
+                    Math.random() * Math.PI * 2,
+                    Math.random() * Math.PI * 2
+                ],
+                frequencies: [
+                    0.8 + Math.random() * 0.7,
+                    2.0 + Math.random() * 1.5,
+                    4.0 + Math.random() * 2.0
+                ],
+                // Increased variation in amplitudes for more height difference between lines
+                amplitudes: [
+                    (0.8 + Math.random() * 0.6) * (0.5 + Math.random() * 0.5), // Random multiplier for more variation
+                    (0.4 + Math.random() * 0.3) * (0.5 + Math.random() * 0.5),
+                    (0.15 + Math.random() * 0.15) * (0.5 + Math.random() * 0.5)
+                ],
+                noiseSeeds: [
+                    Math.random() * 100,
+                    Math.random() * 100,
+                    Math.random() * 100
+                ],
+                colorOffset: Math.random() * Math.PI * 2
+            };
+            
+            seaweedLines.push(line);
+        }
+        
+        // Animation
+        const clock = new THREE.Clock();
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const time = clock.getElapsedTime() * 2;
+            
+            seaweedLines.forEach((line, lineIndex) => {
+                const positions = line.geometry.attributes.position;
+                const colors = line.geometry.attributes.color;
+                const userData = line.userData;
+                
+                // Move the entire line horizontally
+                userData.baseX += moveSpeed * 0.015;
+                
+                // Reset position when line moves off screen - maintain exact spacing
+                if (userData.baseX > rightBoundary) {
+                    userData.baseX = leftBoundary + (userData.baseX - rightBoundary);
+                }
+                
+                // Update each point in the line
+                for (let i = 0; i < userData.numPoints; i++) {
+                    const percent = i / (userData.numPoints - 1);
+                    
+                    // Base vertical position (fixed at bottom)
+                    const baseY = userData.baseY + (i * userData.segmentLength);
+                    
+                    // More influence higher up the stalk
+                    const influenceFactor = Math.pow(percent, 2.5);
+                    
+                    // Complex movement combining multiple waves and noise
+                    let yOffset = 0;
+                    
+                    // Primary wave movement (slow, large)
+                    yOffset += Math.sin(time * userData.frequencies[0] + userData.phases[0]) 
+                              * (userData.amplitudes[0] * 0.33) * influenceFactor;
+                    
+                    // Secondary wave movement (medium)
+                    yOffset += Math.sin(time * userData.frequencies[1] + userData.phases[1] + i * 0.2) 
+                              * (userData.amplitudes[1] * 0.33) * influenceFactor;
+                    
+                    // Tertiary wave movement (fast, small)
+                    yOffset += Math.sin(time * userData.frequencies[2] + userData.phases[2] + i * 0.4) 
+                              * (userData.amplitudes[2] * 0.33) * influenceFactor;
+                    
+                    // Add noise-based movement
+                    const noiseY = noise(
+                        userData.noiseSeeds[0] + time * 0.3,
+                        userData.noiseSeeds[1] + i * 0.05,
+                        userData.noiseSeeds[2]
+                    ) * (1.8 * 0.33) * influenceFactor;
+                    
+                    // Apply all movement factors
+                    const x = userData.baseX;
+                    const y = baseY + yOffset + noiseY;
+                    
+                    // Set position
+                    positions.setX(i, x);
+                    positions.setY(i, y);
+                    
+                    // Set static green color with slight variation based on height
+                    const brightness = 0.7 + (percent * 0.3);
+                    colors.setXYZ(i, 0, brightness, 0);
+                }
+                
+                // Update geometry
+                positions.needsUpdate = true;
+                colors.needsUpdate = true;
+            });
+            
+            renderer.render(scene, camera);
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            
+            // Recalculate viewport dimensions
+            const vFOV = camera.fov * Math.PI / 180;
+            const height = 2 * Math.tan(vFOV / 2) * camera.position.z;
+            const width = height * camera.aspect;
+            
+            // Update bottom position for all lines
+            const bottomY = -height/2 + 0.5;
+            
+            seaweedLines.forEach(line => {
+                const userData = line.userData;
+                userData.baseY = bottomY;
+                
+                // Update all Y positions
+                const positions = line.geometry.attributes.position;
+                for (let i = 0; i < userData.numPoints; i++) {
+                    positions.setY(i, bottomY + (i * userData.segmentLength));
+                }
+                positions.needsUpdate = true;
+            });
+        });
+        
+        animate();
+    </script>
+</body>
+</html> 
